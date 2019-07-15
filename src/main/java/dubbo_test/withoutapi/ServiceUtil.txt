@@ -1,0 +1,137 @@
+package dubbo_test.withoutapi;
+
+
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+
+import org.apache.commons.lang3.StringUtils;
+
+import com.alibaba.dubbo.common.utils.CollectionUtils;
+import com.alibaba.dubbo.config.ApplicationConfig;
+import com.alibaba.dubbo.config.ReferenceConfig;
+import com.alibaba.dubbo.config.RegistryConfig;
+import com.alibaba.dubbo.config.utils.ReferenceConfigCache;
+import com.alibaba.dubbo.rpc.service.GenericService;
+
+
+public class ServiceUtil {
+
+	// 当前应用的信息
+	private static ApplicationConfig application = new ApplicationConfig();
+	// 注册中心信息缓存
+	private static ConcurrentMap<String, RegistryConfig> registryConfigCache = new ConcurrentHashMap<>();
+	// 注册中心服务信息缓存
+	private static ConcurrentMap<String, GenericService> genericServiceCache = new ConcurrentHashMap<>();
+
+	static {
+		application.setName("xxx-consumer");
+	}
+	
+	/**
+	 * * 
+	 * 获取注册中心信息 * *
+	 *  @param address zk注册地址 * 
+	 *  @param group dubbo服务所在的组 * 
+	 *  @return
+	 */
+	private static RegistryConfig getRegistryConfig(String address,
+			String version,String owner) {
+		String key = address + "-" + version + "-" + owner;
+		RegistryConfig registryConfig = registryConfigCache.get(key);
+		if (null == registryConfig) {
+		registryConfig = new RegistryConfig();
+			if (StringUtils.isNotEmpty(address)) {
+				registryConfig.setAddress(address);
+				registryConfig.setProtocol("zookeeper");
+				registryConfig.setPort(2181);
+			}
+			if (StringUtils.isNotEmpty(version)) {
+				registryConfig.setVersion(version);
+			}				
+			registryConfig.setTimeout(20000);			
+			registryConfigCache.put(key, registryConfig);
+		}			
+		return registryConfig;
+	}
+	/**
+	 * 连接服务	
+	 * @param interfaceName
+	 * @param address
+	 * @param version
+	 * @param owner
+	 * @return
+	 */
+	public static ReferenceConfig<GenericService> getGenericService(String interfaceName,
+			String address, String version,String owner){
+		ReferenceConfig<GenericService> rc = new ReferenceConfig<GenericService>();  
+		rc.setApplication(application);      
+		rc.setRegistry(getRegistryConfig(address,version,owner));
+		rc.setInterface(interfaceName);  
+		if (StringUtils.isNotEmpty(version))
+			rc.setVersion(version);		
+		rc.setGeneric(true);
+		rc.setTimeout(20000);
+		return rc;
+	}
+	
+	public static Object invoke(String interfaceName,String methodName,
+			String address, String version, List<Map<String, Object>> parameters,String owner){			
+		try {
+			String[] addrs = address.split(",");//配置多个zk地址
+			GenericService genericService = null;
+			ReferenceConfigCache cache = null;//服务注册缓存
+			ReferenceConfig<GenericService> rc = null;
+			Exception finalExp = null;//最终连接服务异常
+			for (String addr : addrs) {
+				try {
+					genericService = genericServiceCache.get(interfaceName);
+					if (genericService == null) {
+						rc = getGenericService(interfaceName,addr,version,owner);
+						cache = ReferenceConfigCache.getCache();	
+						genericService = cache.get(rc);
+						if (genericService == null) {										
+							cache.destroy(rc);//服务注册缓存
+							continue;
+						}
+					}
+					break;
+				} catch (Exception e) {
+					finalExp = e;
+					cache.destroy(rc);//服务注册缓存
+					continue;
+				}
+			}
+			//GenericService genericService = cache.get(rc);		
+			if (genericService == null) {
+				//cache.destroy(rc);
+				throw new RuntimeException("genericService is null");				
+			}
+			String[] invokeParamTyeps = null;
+			Object[] invokeParams = null;
+			if (CollectionUtils.isNotEmpty(parameters)) {
+				int len = parameters.size();
+		        invokeParamTyeps = new String[len];
+		        invokeParams = new Object[len];
+		        
+		        for(int i = 0; i < len; i++){
+		            invokeParamTyeps[i] = (String) parameters.get(i).get("ParamType");
+		            invokeParams[i] = parameters.get(i).get("Object");
+		        }
+			}
+	        
+	        Object obj = genericService.$invoke(methodName,invokeParamTyeps,invokeParams);
+	        genericServiceCache.put(interfaceName, genericService);
+	        if (obj == null) {
+				return "invoke success!";
+			}
+	        return obj;
+		} catch (Exception e) {
+			genericServiceCache.remove(interfaceName);
+			throw new RuntimeException(e);
+		}
+	}
+		
+}
+

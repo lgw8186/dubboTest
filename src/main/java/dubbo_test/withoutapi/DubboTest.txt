@@ -1,0 +1,51 @@
+package dubbo_test.withoutapi;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+public class DubboTest { 
+	
+	public static String dubbo(String clss, String method, String zkAddress,
+			String zkVersion, List<Param> ps, String owner) throws Exception {
+		List<Map<String, Object>> parametersList = ParamUtils.getDubboParameters(ps);
+		Object obj = "";
+
+		obj = ServiceUtil.invoke(clss, method, zkAddress, zkVersion,parametersList, owner);
+		if (obj instanceof IllegalStateException) {
+			String msg = ((IllegalStateException) obj).getMessage();
+			if ("dubbo genericService can't be used!".equals(msg)) {
+				obj = ServiceUtil.invoke(clss, method, zkAddress,
+						zkVersion, parametersList, owner);
+			}
+		} else if (obj instanceof Exception) {
+			throw (Exception) obj;
+		}
+		return Util.toJsonString(obj);
+	}
+    
+	
+    public static void main(String[] args) {
+    	String clss = "xxx";
+    	String method = "xx";
+    	String zkAddress ="1.1.1.1";
+    	String zkVersion ="1.0";
+    	String owner ="";
+    	Param p = new Param();
+    	p.setParamId("0");
+    	p.setParamName("String");
+    	p.setParamValue("test");
+    	
+    	List<Param> ps = new ArrayList<>();
+    	ps.add(p);
+    	
+    	try {
+			String res = DubboTest.dubbo(clss, method, zkAddress, zkVersion, ps, owner);
+			System.out.println("res:"+res);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+    	
+	}
+    
+}
